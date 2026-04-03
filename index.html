@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Kurbağa Preparatı Hazırlama Simülasyonu</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            /* Çift tıklama ile yakınlaştırmayı engelle (mobil için) */
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        /* Kurbağanın titreme (pithing) animasyonu */
+        @keyframes shakeFast {
+            0% { transform: translate(1px, 1px) rotate(0deg); }
+            10% { transform: translate(-2px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+
+        .shake-fast {
+            animation: shakeFast 0.1s infinite;
+        }
+
+        /* Sürüklenen aletin gölgesi ve rotasyon sınıfları */
+        .dragging-clone {
+            position: fixed;
+            pointer-events: none;
+            z-index: 9999;
+            filter: drop-shadow(0 10px 15px rgba(0,0,0,0.3));
+        }
+
+        .rotate-90-drag {
+            transform: translate(-50%, -50%) rotate(90deg);
+        }
+
+        .normal-drag {
+            transform: translate(-50%, -50%);
+        }
+
+        /* Hedef bölgesi ince çizgili görünüm (Geliştirici/Oyuncu Rehberi) */
+        .drop-zone {
+            border: 2px dashed rgba(255, 255, 255, 0.4);
+            border-radius: 50%;
+            z-index: 10;
+        }
+
+        /* Kesilen başın yavaşça uçma animasyonu */
+        .fly-away-slow {
+            animation: flyUpSlow 4s ease-in-out forwards;
+        }
+
+        @keyframes flyUpSlow {
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(-400px) rotate(-15deg); opacity: 0; }
+        }
+
+        /* Araçların pasif görünümü */
+        .tool-icon {
+            transition: opacity 0.2s, transform 0.2s;
+            cursor: grab;
+        }
+        
+        .tool-icon.inactive {
+            filter: grayscale(100%);
+            opacity: 0.3;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* Dijital Saat Fontu ve Parlaması */
+        .digital-clock {
+            font-family: 'Courier New', Courier, monospace;
+            text-shadow: 0 0 8px rgba(239, 68, 68, 0.8);
+        }
+
+        /* Buton Stilleri */
+        .intro-btn {
+            transition: transform 0.1s, background-color 0.2s;
+        }
+        .intro-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 h-screen w-full flex items-center justify-center overflow-hidden">
+
+    <!-- Tarayıcı İçi Ön Yükleme (Flicker Engellemek İçin) -->
+    <div class="hidden">
+        <img src="canli.png">
+        <img src="mss.png">
+        <img src="timpanikmembran.png">
+        <img src="decapitation.png">
+        <img src="spinalfrog.png">
+        <img src="kesilenbas.png">
+        <img src="spinalfrog_solayak.png">
+        <img src="spinalfrog_sagayak.png">
+        <img src="spinalfrog_sagrefleks.png">
+        <img src="spinalfrog_solrefleks.png">
+    </div>
+
+    <!-- Mobil görünümlü ana konteyner -->
+    <div id="app" class="relative w-full max-w-md h-full max-h-[900px] bg-slate-50 flex flex-col shadow-2xl sm:rounded-2xl sm:h-[95vh] sm:my-auto overflow-hidden">
+        
+        <!-- Üst Bilgi Paneli -->
+        <div id="info-panel" class="h-1/4 min-h-[120px] bg-blue-800 text-white p-4 flex flex-col justify-center items-center text-center shadow-md z-20">
+            <h2 id="info-title" class="text-xl font-bold mb-2 leading-tight">Yükleniyor...</h2>
+            <p id="info-desc" class="text-sm text-blue-100 font-medium"></p>
+        </div>
+
+        <!-- Butonlar (Intro Aşamasında Görünür) -->
+        <div id="intro-buttons" class="hidden flex justify-center gap-3 py-3 bg-slate-100 border-b border-slate-300 z-20 shadow-sm">
+            <button id="btn-timp" class="intro-btn px-4 py-2 bg-blue-600 text-white rounded-lg shadow text-sm font-semibold hover:bg-blue-700">Timpanik Membran</button>
+            <button id="btn-mss" class="intro-btn px-4 py-2 bg-purple-600 text-white rounded-lg shadow text-sm font-semibold hover:bg-purple-700">MSS Yapıları</button>
+        </div>
+
+        <!-- Orta Kurbağa Görüntüleme Alanı -->
+        <div id="frog-area" class="flex-1 relative flex justify-end items-center bg-white p-4 overflow-hidden">
+            
+            <!-- Dijital Saat Konteyneri -->
+            <div id="stopwatch-container" class="absolute top-4 w-full flex justify-center hidden z-30 right-0">
+                <div class="bg-[#111] px-6 py-2 rounded-xl border-4 border-gray-800 shadow-xl flex items-center">
+                    <span id="clock-display" class="digital-clock text-red-500 text-4xl font-bold tracking-widest">00.00</span>
+                </div>
+            </div>
+
+            <!-- Resim ve Hedefler Kapsayıcısı (%15 sağa kaydırma için genişlik %85 ve sağa dayalı) -->
+            <div id="image-wrapper" class="relative w-[85%] max-w-[320px] touch-none">
+                
+                <!-- Ana Görsel -->
+                <img id="main-image" src="canli.png" alt="Kurbağa" class="w-full h-auto block drop-shadow-xl transition-all duration-300 pointer-events-none">
+
+                <!-- Kesilen Baş Animasyon Görseli (Başlangıçta gizli) -->
+                <!-- Diğer resimle aynı canvas boyutunda kabul edildiği için width 100% -->
+                <img id="kesilen-bas" src="kesilenbas.png" alt="Kesilen Baş" class="absolute hidden drop-shadow-lg z-20" style="left: 0%; top: 0%; width: 100%;">
+
+                <!-- Masaüstü Yedeği: Takılı Kalan Portegü (Daha sola ve yukarı alındı) -->
+                <img id="attached-portegu" src="portegu.png" alt="Takılı Portegü" class="absolute hidden drop-shadow-md z-10" style="left: -24%; top: 56%; width: 32%; transform: rotate(90deg);">
+
+                <!-- Sürükle Bırak Hedef Alanları (Drop Zones) -->
+                <div id="dz-jaw" class="absolute drop-zone hidden bg-red-400/20" style="left: -5%; top: 65%; width: 20%; height: 25%;"></div>
+                <div id="dz-line" class="absolute drop-zone hidden bg-blue-400/20" style="left: 10%; top: 58%; width: 20%; height: 35%;"></div>
+                <div id="dz-leftfoot" class="absolute drop-zone hidden bg-green-400/20" style="left: 80%; top: 85%; width: 16%; height: 16%;"></div>
+                <div id="dz-rightfoot" class="absolute drop-zone hidden bg-green-400/20" style="left: 85%; top: 52%; width: 16%; height: 16%;"></div>
+                <div id="dz-spinal" class="absolute drop-zone hidden bg-purple-400/20" style="left: 14%; top: 70%; width: 25%; height: 16%;"></div>
+            </div>
+
+        </div>
+
+        <!-- Alt Cerrahi Aletler Alanı -->
+        <div id="tools-area" class="h-1/4 min-h-[140px] bg-slate-200 border-t-4 border-slate-300 p-4 pb-8 flex justify-around items-center rounded-t-3xl shadow-[0_-5px_15px_rgba(0,0,0,0.1)] z-40 transition-transform duration-300 touch-none">
+            
+            <div class="flex flex-col items-center">
+                <div class="w-16 h-16 bg-white rounded-xl shadow-sm flex justify-center items-center p-2 mb-1">
+                    <img id="tool-portegu" src="portegu.png" alt="Portegü" class="tool-icon inactive w-full h-full object-contain" data-tool="portegu">
+                </div>
+                <span class="text-xs font-semibold text-slate-600">Portegü</span>
+            </div>
+
+            <div class="flex flex-col items-center">
+                <div class="w-16 h-16 bg-white rounded-xl shadow-sm flex justify-center items-center p-2 mb-1">
+                    <img id="tool-makas" src="makas.png" alt="Makas" class="tool-icon inactive w-full h-full object-contain" data-tool="makas">
+                </div>
+                <span class="text-xs font-semibold text-slate-600">Makas</span>
+            </div>
+
+            <div class="flex flex-col items-center">
+                <div class="w-16 h-16 bg-white rounded-xl shadow-sm flex justify-center items-center p-2 mb-1">
+                    <img id="tool-penset" src="penset_2.png" alt="Penset" class="tool-icon inactive w-full h-full object-contain" data-tool="penset">
+                </div>
+                <span class="text-xs font-semibold text-slate-600">Penset</span>
+            </div>
+
+            <div class="flex flex-col items-center">
+                <div class="w-16 h-16 bg-white rounded-xl shadow-sm flex justify-center items-center p-2 mb-1">
+                    <img id="tool-igne" src="igne.png" alt="İğne" class="tool-icon inactive w-full h-full object-contain" data-tool="igne">
+                </div>
+                <span class="text-xs font-semibold text-slate-600">İğne</span>
+            </div>
+
+        </div>
+
+        <!-- Başarı & Ödül Modalı -->
+        <div id="award-modal" class="hidden absolute inset-0 bg-black bg-opacity-70 flex-col items-center justify-center z-50">
+            <div id="award-content" class="bg-white p-8 rounded-3xl shadow-2xl flex flex-col items-center transform scale-0 transition-transform duration-500 max-w-[85%] text-center">
+                <div class="w-24 h-24 mb-4 bg-blue-100 rounded-full flex items-center justify-center border-4 border-blue-500 shadow-inner">
+                    <!-- SVG Neşter (Scalpel) İkonu -->
+                    <svg class="w-14 h-14 text-blue-700" fill="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M21.2,3.8c-1.1-1.1-2.9-1.1-4,0l-5.4,5.4c-0.2,0.2-0.4,0.5-0.5,0.8L9,15.6l-6.7,6.7c-0.4,0.4-0.4,1,0,1.4s1,0.4,1.4,0l6.7-6.7l5.5-2.2c0.3-0.1,0.6-0.3,0.8-0.5l5.4-5.4C22.3,6.7,22.3,4.9,21.2,3.8z M15,10.6l-1.4-1.4l5-5l1.4,1.4L15,10.6z"/>
+                    </svg>
+                </div>
+                <h3 class="text-2xl font-black text-gray-800">Yeni Başlayan Cerrah</h3>
+                <p class="text-gray-600 mt-3 font-medium">Tebrikler! Kurbağa preparatını başarıyla hazırladınız. Artık kalp ve çizgili kas deneylerine hazırsınız.</p>
+                <button onclick="closeAward()" class="mt-6 bg-blue-600 text-white px-8 py-3 rounded-full font-bold shadow-lg hover:bg-blue-700 active:scale-95 transition">Tamam</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- DURUM YÖNETİMİ (STATE MACHINE) ---
+        const STATES = {
+            INTRO: 0,
+            DECAP_JAW: 1, 
+            DECAP_CUT: 2, 
+            SHOCK: 3,
+            REFLEX: 4,
+            PITHING: 5,
+            VERIFY: 6, // Pitting sonrası doğrulama aşaması
+            DONE: 7
+        };
+
+        let currentState = STATES.INTRO;
+
+        // --- ALETLERİN ETKİLEŞİM (UÇ) NOKTALARI ---
+        const TOOL_HOTSPOTS = {
+            portegu: { x: 100, y: 50 },
+            makas: { x: 50, y: 5 },     
+            penset: { x: 50, y: 5 },    
+            igne: { x: 100, y: 50 }     
+        };
+
+        // DOM Elementleri
+        const titleEl = document.getElementById('info-title');
+        const descEl = document.getElementById('info-desc');
+        const mainImage = document.getElementById('main-image');
+        const kesilenBas = document.getElementById('kesilen-bas');
+        const clockDisplay = document.getElementById('clock-display');
+        const clockContainer = document.getElementById('stopwatch-container');
+        const attachedPortegu = document.getElementById('attached-portegu');
+        const introButtons = document.getElementById('intro-buttons');
+
+        // --- SİMÜLASYON AKIŞINI GÜNCELLEME ---
+        function updateState() {
+            // Hedef alanları ve butonları gizle
+            document.querySelectorAll('.drop-zone').forEach(el => el.classList.add('hidden'));
+            introButtons.classList.add('hidden');
+
+            switch (currentState) {
+                case STATES.INTRO:
+                    updateInfo("Hazırlık Aşaması", "İskelet kası ve kalp kası deneylerine başlamadan önce tüm merkezi sinir sistemi elemanlarını ortadan kaldır.");
+                    mainImage.src = "canli.png";
+                    introButtons.classList.remove('hidden');
+                    break;
+
+                case STATES.DECAP_JAW:
+                    updateInfo("Adım 1: Dekapitasyon", "Dekapitasyon yapmak için önce portegü ile üst çeneyi tut.");
+                    document.getElementById('dz-jaw').classList.remove('hidden');
+                    break;
+
+                case STATES.DECAP_CUT:
+                    updateInfo("Adım 1: Dekapitasyon", "Şimdi makasla timpanik membranın arkasından kes.");
+                    mainImage.src = "decapitation.png";
+                    document.getElementById('dz-line').classList.remove('hidden');
+                    break;
+
+                case STATES.SHOCK:
+                    updateInfo("Adım 2: Spinal Şok Ölçümü", "Elde edilen spinal kurbağada spinal şokun süresini ölç. Bunun için pensetle ayaklara ağrılı uyaran ver.");
+                    document.getElementById('dz-leftfoot').classList.remove('hidden');
+                    document.getElementById('dz-rightfoot').classList.remove('hidden');
+                    break;
+
+                case STATES.REFLEX:
+                    // Bilgi yazısı updateState çağrıldığında manuel olarak güncellenir.
+                    document.getElementById('dz-leftfoot').classList.remove('hidden');
+                    document.getElementById('dz-rightfoot').classList.remove('hidden');
+                    break;
+
+                case STATES.PITHING:
+                    updateInfo("Adım 3: Pitting", "Medulla spinalisi pitting ile haraplayın.");
+                    document.getElementById('dz-spinal').classList.remove('hidden');
+                    clockContainer.classList.add('hidden'); // Saat kaldırılır
+                    break;
+                
+                case STATES.VERIFY:
+                    updateInfo("Kontrol Aşaması", "Medulla spinalisin tam olarak haraplanıp haraplanmadığını reflekslere bakarak kontrol et.");
+                    document.getElementById('dz-leftfoot').classList.remove('hidden');
+                    document.getElementById('dz-rightfoot').classList.remove('hidden');
+                    break;
+
+                case STATES.DONE:
+                    updateInfo("Deney Hazır", "Pitting tamamlandı, spinal kord haraplandı.");
+                    break;
+            }
+
+            updateToolsVisibility();
+        }
+
+        function updateInfo(title, desc) {
+            titleEl.innerText = title;
+            descEl.innerText = desc;
+        }
+
+        function updateToolsVisibility() {
+            document.querySelectorAll('.tool-icon').forEach(el => el.classList.add('inactive'));
+            
+            // Portegu INTRO'da kullanıcı butonlara bastıktan sonra açılır, bunu logic'te yönetiyoruz
+            if (currentState === STATES.DECAP_JAW) {
+                document.getElementById('tool-portegu').classList.remove('inactive');
+            } else if (currentState === STATES.DECAP_CUT) {
+                document.getElementById('tool-makas').classList.remove('inactive');
+            } else if (currentState === STATES.SHOCK || currentState === STATES.VERIFY) {
+                document.getElementById('tool-penset').classList.remove('inactive');
+            } else if (currentState === STATES.REFLEX) {
+                // REFLEX fazında hem penset hem iğne serbest
+                document.getElementById('tool-penset').classList.remove('inactive');
+                document.getElementById('tool-igne').classList.remove('inactive');
+            } else if (currentState === STATES.PITHING) {
+                document.getElementById('tool-igne').classList.remove('inactive');
+            }
+        }
+
+        // --- 1. KURBAĞA TANIMA (BUTONLAR) ---
+        let viewedTimp = false;
+        let viewedMss = false;
+
+        document.getElementById('btn-timp').addEventListener('click', () => {
+            if (currentState === STATES.INTRO) {
+                mainImage.src = 'timpanikmembran.png';
+                viewedTimp = true;
+                checkIntroProgress();
+            }
+        });
+
+        document.getElementById('btn-mss').addEventListener('click', () => {
+            if (currentState === STATES.INTRO) {
+                mainImage.src = 'mss.png';
+                viewedMss = true;
+                checkIntroProgress();
+            }
+        });
+
+        // Hem Timpanik hem de MSS'ye tıklandığında Portegü aleti açılır.
+        function checkIntroProgress() {
+            if (viewedTimp && viewedMss) {
+                document.getElementById('tool-portegu').classList.remove('inactive');
+            }
+        }
+
+
+        // --- 2. DEKAPİTASYON GERÇEKLEŞMESİ ---
+        function executeDecapitation() {
+            attachedPortegu.classList.add('hidden');
+            clearAllPointers(); 
+            
+            currentState = STATES.SHOCK;
+            mainImage.src = "spinalfrog.png";
+            updateState();
+
+            // Kesilen Başın Yavaş Uçma Animasyonu
+            kesilenBas.classList.remove('hidden');
+            kesilenBas.classList.add('fly-away-slow');
+            
+            // Animasyon bittiğinde gizle ve kronometreyi başlat
+            setTimeout(() => {
+                kesilenBas.classList.add('hidden');
+                kesilenBas.classList.remove('fly-away-slow');
+                startClock();
+            }, 4000); 
+        }
+
+        // --- 3. KRONOMETRE ---
+        let startTime;
+        let clockInterval;
+        let elapsedTime = 0;
+        let clockStopped = false;
+
+        function startClock() {
+            clockContainer.classList.remove('hidden');
+            clockContainer.classList.add('flex');
+            startTime = Date.now();
+            
+            clockInterval = setInterval(() => {
+                elapsedTime = Date.now() - startTime;
+                let secs = (elapsedTime / 1000).toFixed(2);
+                clockDisplay.innerText = secs.padStart(5, '0');
+                
+                // 25 saniye geçtiğinde REFLEX aşamasına sessizce geç
+                if (elapsedTime > 25000 && currentState === STATES.SHOCK) {
+                    currentState = STATES.REFLEX;
+                    updateState(); 
+                }
+            }, 50);
+        }
+
+        function stopClock() {
+            clearInterval(clockInterval);
+            clockStopped = true;
+        }
+
+        // --- 4. REFLEKS TESTİ (PENSET) ---
+        let isTestingReflex = false;
+        function triggerReflexTest(footStr) {
+            if (isTestingReflex) return;
+            isTestingReflex = true;
+
+            if (currentState === STATES.SHOCK) {
+                updateInfo("Spinal Şok Evresi", "Uyarı verildi, yanıt yok.");
+                mainImage.src = (footStr === 'left') ? 'spinalfrog_solayak.png' : 'spinalfrog_sagayak.png';
+                
+                setTimeout(() => {
+                    mainImage.src = 'spinalfrog.png';
+                    isTestingReflex = false;
+                }, 500); // 0.5 Saniye
+            } 
+            else if (currentState === STATES.REFLEX) {
+                if (!clockStopped) {
+                    stopClock();
+                    const finalSecs = (elapsedTime / 1000).toFixed(2);
+                    updateInfo("Spinal Şok Bitti", `Spinal şok süresi ${finalSecs} saniye olarak kaydedildi. Refleksleri görmeye devam edebilir veya pitting'e geçebilirsiniz.`);
+                }
+                
+                mainImage.src = (footStr === 'left') ? 'spinalfrog_solrefleks.png' : 'spinalfrog_sagrefleks.png';
+
+                setTimeout(() => {
+                    mainImage.src = 'spinalfrog.png';
+                    isTestingReflex = false;
+                }, 500); // 0.5 Saniye refleks süresi
+            }
+        }
+
+        // --- 5. PITHING ANİMASYONU (İĞNE) ---
+        let isPithingNow = false;
+        let pithingTime = 0;
+        let pithingInterval = null;
+
+        function handlePithingActive(isActive) {
+            if (isActive && !isPithingNow) {
+                isPithingNow = true;
+                mainImage.classList.add('shake-fast');
+                
+                pithingInterval = setInterval(() => {
+                    pithingTime += 100; // Her 100ms
+                    mainImage.src = (pithingTime % 200 === 0) ? 'spinalfrog_solrefleks.png' : 'spinalfrog_sagrefleks.png';
+                    
+                    if (pithingTime >= 4000) { // 4 Saniye Doldu
+                        finishPithing();
+                    }
+                }, 100);
+
+            } else if (!isActive && isPithingNow) {
+                isPithingNow = false;
+                mainImage.classList.remove('shake-fast');
+                clearInterval(pithingInterval);
+                mainImage.src = 'spinalfrog.png';
+            }
+        }
+
+        function finishPithing() {
+            isPithingNow = false;
+            clearInterval(pithingInterval);
+            mainImage.classList.remove('shake-fast');
+            mainImage.src = 'spinalfrog.png';
+            clearAllPointers();
+
+            // Pithing Bitti, Doğrulama Evresine Geç
+            currentState = STATES.VERIFY;
+            updateState();
+        }
+
+        // --- 6. PITHING SONRASI DOĞRULAMA (YENİ) ---
+        let checkedLeftFoot = false;
+        let checkedRightFoot = false;
+        let isVerifying = false;
+
+        function verifyReflexLoss(footStr) {
+            if (isVerifying) return;
+            isVerifying = true;
+
+            // Refleks resimleri GÖSTERİLMEZ, sadece ayak resimleri gösterilir
+            mainImage.src = (footStr === 'left') ? 'spinalfrog_solayak.png' : 'spinalfrog_sagayak.png';
+            
+            if (footStr === 'left') checkedLeftFoot = true;
+            if (footStr === 'right') checkedRightFoot = true;
+
+            setTimeout(() => {
+                mainImage.src = 'spinalfrog.png';
+                isVerifying = false;
+
+                // Her iki bacak da test edildiyse 3 saniye sonra bitir
+                if (checkedLeftFoot && checkedRightFoot) {
+                    checkedLeftFoot = false; // Çifte tetiklenmeyi önle
+                    checkedRightFoot = false;
+                    
+                    updateInfo("Kontrol Başarılı", "Refleksler tamamen kayboldu.");
+                    clearAllPointers();
+
+                    setTimeout(() => {
+                        currentState = STATES.DONE;
+                        updateState();
+                        shootConfetti();
+                        showAwardModal();
+                    }, 3000); // 3 Saniye bekleme süresi
+                }
+            }, 500); // 0.5 Saniye
+        }
+
+        function showAwardModal() {
+            const modal = document.getElementById('award-modal');
+            const content = document.getElementById('award-content');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                content.classList.remove('scale-0');
+                content.classList.add('scale-100');
+            }, 50);
+        }
+
+        function closeAward() {
+            document.getElementById('award-modal').classList.add('hidden');
+        }
+
+        // Konfeti Animasyonu
+        function shootConfetti() {
+            const colors = ['#f44336', '#4caf50', '#2196f3', '#ffeb3b', '#9c27b0'];
+            for(let i=0; i<80; i++) {
+                let conf = document.createElement('div');
+                conf.className = 'absolute w-3 h-4 rounded-sm z-50 pointer-events-none';
+                conf.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                conf.style.left = '50%';
+                conf.style.top = '30%';
+                document.body.appendChild(conf);
+                
+                let angle = Math.random() * Math.PI * 2;
+                let velocity = 50 + Math.random() * 250;
+                let x = Math.cos(angle) * velocity;
+                let y = Math.sin(angle) * velocity - 150;
+                let rot = Math.random() * 360;
+                
+                conf.animate([
+                    { transform: 'translate(0,0) rotate(0deg)', opacity: 1 },
+                    { transform: `translate(${x}px, ${y}px) rotate(${rot}deg)`, opacity: 1, offset: 0.8 },
+                    { transform: `translate(${x}px, ${y + 100}px) rotate(${rot}deg)`, opacity: 0 }
+                ], {
+                    duration: 1500 + Math.random() * 1000,
+                    easing: 'cubic-bezier(.25,.8,.25,1)',
+                    fill: 'forwards'
+                }).onfinish = () => conf.remove();
+            }
+        }
+
+        // --- SÜRÜKLE BIRAK SİSTEMİ ---
+        let pointers = {}; 
+        let makasSurtunme = 0; // Makas hareket zorluğu için sayaç
+
+        document.addEventListener('dragstart', e => e.preventDefault());
+
+        function handlePointerDown(e) {
+            let toolIcon = e.target.closest('.tool-icon');
+            if (!toolIcon || toolIcon.classList.contains('inactive')) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            let toolName = toolIcon.getAttribute('data-tool');
+
+            // INTRO Aşamasından Portegü tutularak Adım 1'e geçiş
+            if (currentState === STATES.INTRO && toolName === 'portegu') {
+                currentState = STATES.DECAP_JAW;
+                mainImage.src = 'canli.png';
+                updateState();
+            }
+            
+            // REFLEX Aşamasından PITHING'e geçiş (İğne alınırsa)
+            if (currentState === STATES.REFLEX && toolName === 'igne') {
+                currentState = STATES.PITHING;
+                updateState();
+            }
+
+            let clone = document.createElement('img');
+            clone.src = toolIcon.src;
+            clone.className = 'dragging-clone';
+            
+            if (toolName === 'portegu' || toolName === 'igne') {
+                clone.classList.add('rotate-90-drag');
+            } else {
+                clone.classList.add('normal-drag');
+            }
+            
+            document.body.appendChild(clone);
+            updateClonePos(clone, e.clientX, e.clientY);
+
+            toolIcon.style.opacity = '0.3';
+
+            pointers[e.pointerId] = {
+                toolName: toolName,
+                clone: clone,
+                sourceEl: toolIcon
+            };
+            
+            document.body.setPointerCapture(e.pointerId);
+            checkSimulationLogic();
+        }
+
+        function updateClonePos(clone, x, y) {
+            clone.style.left = `${x}px`;
+            clone.style.top = `${y}px`;
+        }
+
+        function handlePointerMove(e) {
+            if (pointers[e.pointerId]) {
+                e.preventDefault();
+                let ptr = pointers[e.pointerId];
+                updateClonePos(ptr.clone, e.clientX, e.clientY);
+                checkSimulationLogic();
+            }
+        }
+
+        function handlePointerUp(e) {
+            if (pointers[e.pointerId]) {
+                let ptr = pointers[e.pointerId];
+                
+                // Eğer Portegü "üst çene" bölgesine bırakılırsa oraya yapıştır
+                if (currentState === STATES.DECAP_JAW && ptr.toolName === 'portegu') {
+                    if (isHittingZone(ptr, 'dz-jaw')) {
+                        attachedPortegu.classList.remove('hidden');
+                        currentState = STATES.DECAP_CUT;
+                        updateState();
+                    }
+                }
+
+                ptr.sourceEl.style.opacity = '1';
+                ptr.clone.remove();
+                delete pointers[e.pointerId];
+                document.body.releasePointerCapture(e.pointerId);
+                
+                checkSimulationLogic();
+            }
+        }
+
+        function clearAllPointers() {
+            for(let id in pointers) {
+                let ptr = pointers[id];
+                ptr.sourceEl.style.opacity = '1';
+                ptr.clone.remove();
+                document.body.releasePointerCapture(id);
+            }
+            pointers = {};
+        }
+
+        // Çarpışma Tespiti
+        function isHittingZone(ptr, zoneId) {
+            let zone = document.getElementById(zoneId);
+            if (!zone || zone.classList.contains('hidden')) return false;
+
+            let rect = ptr.clone.getBoundingClientRect();
+            let hotspot = TOOL_HOTSPOTS[ptr.toolName];
+            
+            let tipX = rect.left + (rect.width * hotspot.x / 100);
+            let tipY = rect.top + (rect.height * hotspot.y / 100);
+
+            let zRect = zone.getBoundingClientRect();
+            return (tipX >= zRect.left && tipX <= zRect.right && tipY >= zRect.top && tipY <= zRect.bottom);
+        }
+
+        // Ana Kontrol Döngüsü
+        function checkSimulationLogic() {
+            
+            // DEKAPİTASYON KESİM AŞAMASI (Makas ile sürtünme istiyor)
+            if (currentState === STATES.DECAP_CUT) {
+                let cutting = false;
+                for (let id in pointers) {
+                    let ptr = pointers[id];
+                    if (ptr.toolName === 'makas' && isHittingZone(ptr, 'dz-line')) {
+                        makasSurtunme++;
+                        cutting = true;
+                        // Makas belli bir miktar hareket ettirildikten sonra keser
+                        if (makasSurtunme > 25) { 
+                            executeDecapitation();
+                            makasSurtunme = 0;
+                        }
+                    }
+                }
+                // Eğer makas bölgeden çıkarsa sayacı sıfırla
+                if (!cutting) makasSurtunme = 0; 
+            }
+
+            // SPİNAL ŞOK VE REFLEKS (Penset)
+            if (currentState === STATES.SHOCK || currentState === STATES.REFLEX) {
+                for (let id in pointers) {
+                    let ptr = pointers[id];
+                    if (ptr.toolName === 'penset') {
+                        if (isHittingZone(ptr, 'dz-leftfoot')) triggerReflexTest('left');
+                        if (isHittingZone(ptr, 'dz-rightfoot')) triggerReflexTest('right');
+                    }
+                }
+            }
+
+            // PITHING (İğne)
+            if (currentState === STATES.PITHING) {
+                let isIgneInside = false;
+                for (let id in pointers) {
+                    let ptr = pointers[id];
+                    if (ptr.toolName === 'igne' && isHittingZone(ptr, 'dz-spinal')) {
+                        isIgneInside = true;
+                    }
+                }
+                handlePithingActive(isIgneInside);
+            }
+
+            // PITHING DOĞRULAMA (Penset)
+            if (currentState === STATES.VERIFY) {
+                for (let id in pointers) {
+                    let ptr = pointers[id];
+                    if (ptr.toolName === 'penset') {
+                        if (isHittingZone(ptr, 'dz-leftfoot')) verifyReflexLoss('left');
+                        if (isHittingZone(ptr, 'dz-rightfoot')) verifyReflexLoss('right');
+                    }
+                }
+            }
+        }
+
+        // Pointer event listener'ları
+        document.addEventListener('pointerdown', handlePointerDown, { passive: false });
+        document.addEventListener('pointermove', handlePointerMove, { passive: false });
+        ['pointerup', 'pointercancel', 'pointerleave'].forEach(evt => {
+            document.addEventListener(evt, handlePointerUp);
+        });
+
+        // Başlangıç
+        window.onload = () => {
+            updateState();
+        };
+
+    </script>
+</body>
+</html>
